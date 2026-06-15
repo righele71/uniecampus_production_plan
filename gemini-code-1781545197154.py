@@ -161,4 +161,41 @@ if df_ordini is not None:
             st.metric(label="✅ Ordini Schedulati", value=f"{len(ordini_superstiti)} / {len(df_ordini)}")
         with kpi2:
             tot_minuti_salvati = ordini_superstiti['Minuti_Setup_Recuperati'].sum()
-            st.metric(label="⏱️ Tempo di Setup Totale Risparmiato", value=f"{int(tot_minuti_salvati)} min", delta=f"+{(tot_minuti_sal
+            st.metric(label="⏱️ Tempo di Setup Totale Risparmiato", value=f"{int(tot_minuti_salvati)} min", delta=f"+{(tot_minuti_salvati/(8*60)):.1f} Giorni/Uomo")
+        with kpi3:
+            ritardi_totali = ordini_superstiti['In_Ritardo'].sum()
+            st.metric(label="⚠️ Consegne Fuori Tempo Massimo", value=f"{ritardi_totali}", 
+                      delta=f"{ritardi_totali} allarmi" if ritardi_totali > 0 else "Nessun ritardo generato",
+                      delta_color="inverse" if ritardi_totali > 0 else "normal")
+
+        # Funzione di stile per colorare ESCLUSIVAMENTE la cella della Data Fine Prevista
+        def applica_colore_ritardi(df_data):
+            # Creiamo una matrice vuota di stili con le stesse dimensioni del DataFrame visualizzato
+            stile_matrice = pd.DataFrame('', index=df_data.index, columns=df_data.columns)
+            # Applichiamo lo stile rosso solo se la riga corrispondente ha il flag In_Ritardo a True
+            condizione_ritardo = df_da_visualizzare['In_Ritardo'] == True
+            stile_matrice.loc[condizione_ritardo, 'Data_Fine_Prevista'] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold; border: 1px solid #a51d24;'
+            return stile_matrice
+
+        st.markdown("### 📋 Sequenza di Produzione Ottimizzata (Scadenze Protette)")
+        st.markdown("_I tondi sono stati accorpati solo se consecutivi all'interno delle finestre di consegna legittime dei clienti._")
+        
+        vista_colonne = [
+            'ID_Ordine', 'Codice_Articolo', 'Lotto', 'Quantita_Da_Produrre', 
+            'Descrizione_Materiale', 'Macchina_Assegnata_Default', 'Operatore_Suggerito_AI', 
+            'Tempo_Totale_Min', 'Minuti_Setup_Recuperati', 'Data_Scadenza_Cliente', 'Data_Fine_Prevista'
+        ]
+        
+        # Generiamo il subset pulito comprensivo della colonna di controllo
+        df_da_visualizzare = ordini_superstiti[vista_colonne + ['In_Ritardo']].copy()
+        
+        # Generiamo lo Styler, nascondiamo la colonna booleana di servizio e mostriamo l'output
+        df_styled = (df_da_visualizzare.style
+                     .apply(applica_colore_ritardi, axis=None)
+                     .hide(['In_Ritardo'], axis=1))
+        
+        st.dataframe(df_styled, use_container_width=True)
+
+        if len(ordini_bloccati) > 0:
+            st.markdown("### 🛑 Ordini Sospesi da AI (Materiale non disponibile)")
+            st.dataframe(ordini_bloccati[['ID_Ordine', 'Codice_Articolo', 'Quantita_Da_Produrre', 'Descrizione_Materiale', 'Stato_Disponibilita', 'Data_Previsione_AI_Ritardo']], use_container_width=True)
