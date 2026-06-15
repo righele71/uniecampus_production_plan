@@ -5,9 +5,9 @@ from datetime import datetime, timedelta
 # Configurazione della pagina Streamlit
 st.set_page_config(page_title="AI Production Scheduler", layout="wide")
 
-st.title("🏭 AI-Driven Production Scheduler")
+st.title("🏭 AI-Driven Production Scheduler (Scadenze Protette)")
 st.subheader("Master in AI for Business Administration - Prototipo Avanzato")
-st.markdown("Ottimizzazione in tempo reale: **Materiali (Filtro AI) → Raggruppamento Tondi → Efficienza Operatori → Controllo Scadenze**.")
+st.markdown("Ottimizzazione vincolata: **Filtro AI Materiali → Sequenza Temporale di Consegna → Accorpamento Setup Dinamico → Operatore Ottimale**.")
 
 # ------------------------------------------------------------------------------
 # 1. CARICAMENTO DATI
@@ -27,8 +27,9 @@ def load_data():
 df_ordini, df_magazzino, df_anagrafica, df_operatori = load_data()
 
 if df_ordini is not None:
-    # Identificazione automatica del nome della colonna per evitare KeyError
+    # Identificazione dinamica per prevenire KeyError sulle intestazioni dei materiali
     col_materiale_ordini = 'Codice_Materiale' if 'Codice_Materiale' in df_ordini.columns else 'Materiale_Richiesto'
+    col_materiale_cicli = 'Codice_Materiale' if 'Codice_Materiale' in df_anagrafica.columns else 'Materiale_Richiesto'
     
     with st.expander("📊 Visualizza i Dati di Ingresso (Grezzi dal Gestionale)"):
         col1, col2 = st.columns(2)
@@ -43,10 +44,10 @@ if df_ordini is not None:
     st.markdown("### ⚡ Azione di Pianificazione")
     
     if st.button("🚀 ELABORA PIANO DI PRODUZIONE OTTIMIZZATO", type="primary"):
-        with st.spinner("L'algoritmo sta analizzando i vincoli e calcolando i tempi di consegna..."):
+        with st.spinner("Calcolo dell'euristica di sequenziamento e protezione scadenze..."):
             
             # --------------------------------------------------------------------------
-            # REGOLA 1: FILTRO MATERIALI
+            # REGOLA 1: FILTRO AI MATERIALI
             # --------------------------------------------------------------------------
             df_merged = pd.merge(
                 df_ordini, 
@@ -60,41 +61,46 @@ if df_ordini is not None:
             ordini_superstiti = df_merged[~df_merged['Stato_Disponibilita'].isin(['ESAURITO', 'IN_RITARDO'])].copy()
             
             # --------------------------------------------------------------------------
-            # REGOLA 2: RAGGRUPPA TONDI SIMILI
+            # REGOLA 2: ORDINAMENTO PER PROTEZIONE SCADENZE (Prima le Consegne Critiche)
             # --------------------------------------------------------------------------
-            ordini_ottimizzati = ordini_superstiti.sort_values(
-                by=['Descrizione_Materiale', 'Data_Scadenza_Cliente', 'Priorita_Commerciale'], 
-                ascending=[True, True, False]
+            # Mettiamo in cima i lavori con priorità alta e scadenze più vicine per non sballare le date
+            ordini_superstiti = ordini_superstiti.sort_values(
+                by=['Data_Scadenza_Cliente', 'Priorita_Commerciale'], 
+                ascending=[True, False]
             ).reset_index(drop=True)
             
-            # --------------------------------------------------------------------------
-            # REGOLA 3: ASSEGNAZIONE OPERATORE & CALCOLO TEMPI / DATE
-            # --------------------------------------------------------------------------
-            ordini_ottimizzati = pd.merge(
-                ordini_ottimizzati, 
+            # Integrazione delle informazioni sui tempi standard dei cicli
+            ordini_superstiti = pd.merge(
+                ordini_superstiti, 
                 df_anagrafica[['Codice_Articolo', 'Tempo_Setup_Standard_Min', 'Tempo_Tornitura_Cad_Min']], 
                 on='Codice_Articolo', 
                 how='left'
             )
             
+            # --------------------------------------------------------------------------
+            # REGOLA 3: CALCOLO CODA SEQUENZIALE MACCHINE, ACCORPAMENTO TONDI E OPERATORI
+            # --------------------------------------------------------------------------
             suggerimenti_operatori = []
             tempi_totali_min = []
+            minuti_recuperati = []
             date_fine_previste = []
             
-            # Simuliamo che la produzione parta da oggi
             data_corrente_simulazione = datetime.now()
             
-            # Tracciamento del carico cumulativo per ogni singola macchina (coda sequenziale)
+            # Dizionari per monitorare lo stato di ogni macchina durante la simulazione
             carico_macchine_minuti = {}
+            ultimo_materiale_macchina = {} # Serve per capire se il tondo precedente era identico
             
-            for idx, row in ordini_ottimizzati.iterrows():
+            for idx, row in ordini_superstiti.iterrows():
                 macchina = row['Macchina_Assegnata_Default']
+                materiale_attuale = row[col_materiale_ordini]
+                
                 if macchina not in carico_macchine_minuti:
                     carico_macchine_minuti[macchina] = 0
+                    ultimo_materiale_macchina[macchina] = None
                 
+                # Assegnazione Operatore Ottimale (Efficienza storica maggiore)
                 categoria_centro = 'TORNIO' if 'TORNO' in str(macchina) else ('TAGLIO' if 'TAGLIO' in str(macchina) else 'FRESA')
-                
-                # Ricerca del miglior operatore disponibile per la macchina
                 filtro_op = df_operatori[
                     (df_operatori['Macchina_Specifica'] == macchina) & 
                     (df_operatori['Centro_Di_Lavoro'] == categoria_centro)
@@ -108,75 +114,51 @@ if df_ordini is not None:
                     nome_op = "Operatore Standard"
                     efficienza = 1.0
                 
-                # Calcolo tempo totale per il lotto (Setup + Lavorazione/Efficienza)
-                tempo_teorico = row['Tempo_Tornitura_Cad_Min'] * row['Quantita_Da_Produrre']
-                tempo_totale_lavoro = row['Tempo_Setup_Standard_Min'] + (tempo_teorico / efficienza)
+                # Logica di Accorpamento Tondi: Verifichiamo se il tondo è lo stesso dell'ultimo lavoro fatto su QUELLA macchina
+                tempo_setup_applicato = row['Tempo_Setup_Standard_Min']
+                recupero = 0
                 
-                # Avanzamento della coda sulla macchina specifica
+                if ultimo_materiale_macchina[macchina] == materiale_attuale:
+                    # Stesso tondo consecutivo! Azzeriamo il setup e calcoliamo il guadagno di tempo
+                    recupero = tempo_setup_applicato
+                    tempo_setup_applicato = 0
+                
+                # Calcolo durata effettiva del lotto
+                tempo_lavorazione_teorico = row['Tempo_Tornitura_Cad_Min'] * row['Quantita_Da_Produrre']
+                tempo_totale_lavoro = tempo_setup_applicato + (tempo_lavorazione_teorico / efficienza)
+                
+                # Aggiorniamo la coda temporale della macchina
                 carico_macchine_minuti[macchina] += tempo_totale_lavoro
+                ultimo_materiale_macchina[macchina] = materiale_attuale # Salvo il materiale come ultimo eseguito
                 
-                # Conversione in giorni lavorativi (assumendo turni da 8 ore al giorno)
-                giorni_da_aggiungere = carico_macchine_minuti[macchina] / (8 * 60)
-                data_conclusione = data_corrente_simulazione + timedelta(days=giorni_da_aggiungere)
+                # Calcolo della Data Fine Stimata (assumendo turni di 8 ore lavorative al giorno)
+                giorni_di_coda = carico_macchine_minuti[macchina] / (8 * 60)
+                data_conclusione = data_corrente_simulazione + timedelta(days=giorni_di_coda)
                 
                 suggerimenti_operatori.append(nome_op)
                 tempi_totali_min.append(round(tempo_totale_lavoro, 1))
+                minuti_recuperati.append(round(recupero, 1))
                 date_fine_previste.append(data_conclusione.strftime('%Y-%m-%d'))
             
-            ordini_ottimizzati['Operatore_Suggerito_AI'] = suggerimenti_operatori
-            ordini_ottimizzati['Tempo_Totale_Min'] = tempi_totali_min
-            ordini_ottimizzati['Data_Fine_Prevista'] = date_fine_previste
+            # Assegnazione delle liste calcolate al DataFrame finale
+            ordini_superstiti['Operatore_Suggerito_AI'] = suggerimenti_operatori
+            ordini_superstiti['Tempo_Totale_Min'] = tempi_totali_min
+            ordini_superstiti['Minuti_Setup_Recuperati'] = minuti_recuperati
+            ordini_superstiti['Data_Fine_Prevista'] = date_fine_previste
             
-            # Verifica ritardo rispetto alla scadenza contrattuale del cliente
-            ordini_ottimizzati['In_Ritardo'] = ordini_ottimizzati.apply(
+            # Generazione del flag di controllo ritardo per la formattazione
+            ordini_superstiti['In_Ritardo'] = ordini_superstiti.apply(
                 lambda r: r['Data_Fine_Prevista'] > r['Data_Scadenza_Cliente'], axis=1
             )
 
         # ------------------------------------------------------------------------------
-        # VISUALIZZAZIONE RISULTATI E KPI
+        # INTERFACCIA GRAFICA: KPI E DATAFRAME FORMATTATO
         # ------------------------------------------------------------------------------
-        st.success("Pianificazione completata!")
+        st.success("Ottimizzazione completata bilanciando Setup e Scadenze!")
         
-        # Dashboard KPI
         kpi1, kpi2, kpi3 = st.columns(3)
         with kpi1:
-            st.metric(label="✅ Ordini Pronti al Lancio", value=f"{len(ordini_ottimizzati)} / {len(df_ordini)}")
+            st.metric(label="✅ Ordini Schedulati", value=f"{len(ordini_superstiti)} / {len(df_ordini)}")
         with kpi2:
-            st.metric(label="🛑 Ordini Sospesi (Mancanza Materiale)", value=f"{len(ordini_bloccati)}")
-        with kpi3:
-            ritardi_totali = ordini_ottimizzati['In_Ritardo'].sum()
-            st.metric(label="⚠️ Ordini in Ritardo su Scadenza", value=f"{ritardi_totali}", 
-                      delta=f"{ritardi_totali} criticità" if ritardi_totali > 0 else "Tutto nei tempi",
-                      delta_color="inverse" if ritardi_totali > 0 else "normal")
-
-        # Funzione interna per applicare il colore rosso alle celle in ritardo
-        def evidenzia_ritardi(row):
-            styles = [''] * len(row)
-            if row['In_Ritardo']:
-                idx_data = row.index.get_loc('Data_Fine_Prevista')
-                styles[idx_data] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'
-            return styles
-
-        # Tabelle Risultati
-        st.markdown("### 📋 Sequenza di Productione Ottimizzata (Piano del Giorno)")
-        st.markdown("_Nota: Le celle nella colonna **Data Fine Prevista** sono evidenziate in **rosso** se il lavoro termina dopo la Scadenza Cliente._")
-        
-        vista_colonne = [
-            'ID_Ordine', 'Codice_Articolo', 'Lotto', 'Quantita_Da_Produrre', 
-            'Descrizione_Materiale', 'Macchina_Assegnata_Default', 'Operatore_Suggerito_AI', 
-            'Tempo_Totale_Min', 'Data_Scadenza_Cliente', 'Data_Fine_Prevista'
-        ]
-        
-        # Creiamo una copia del dataframe circoscritta alle colonne di interesse + colonna logica
-        df_da_visualizzare = ordini_ottimizzati[vista_colonne + ['In_Ritardo']].copy()
-        
-        # Applichiamo lo stile condizionale e nascondiamo la colonna logica usando i metodi nativi di Styler
-        df_styled = (df_da_visualizzare.style
-                     .apply(evidenzia_ritardi, axis=1)
-                     .hide(['In_Ritardo'], axis=1))
-        
-        st.dataframe(df_styled, use_container_width=True)
-
-        if len(ordini_bloccati) > 0:
-            st.markdown("### 🛑 Ordini Sospesi (In attesa di Materiale)")
-            st.dataframe(ordini_bloccati[['ID_Ordine', 'Codice_Articolo', 'Quantita_Da_Produrre', 'Descrizione_Materiale', 'Stato_Disponibilita', 'Data_Previsione_AI_Ritardo']], use_container_width=True)
+            tot_minuti_salvati = ordini_superstiti['Minuti_Setup_Recuperati'].sum()
+            st.metric(label="⏱️ Tempo di Setup Totale Risparmiato", value=f"{int(tot_minuti_salvati)} min", delta=f"+{(tot_minuti_sal
