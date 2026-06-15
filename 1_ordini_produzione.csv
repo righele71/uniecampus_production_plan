@@ -1,4 +1,4 @@
-ID_Ordine,Codice_Articolo,Lotto,Quantita_Da_Produrre,Materiale_Richiesto,Descrizione_Materiale,Macchina_Assegnata_Default,Data_Scadenza_Cliente,Priorita_Commerciale
+ID_Ordine,Codice_Articolo,Lotto,Quantita_Da_Produrre,Codice_Materiale,Descrizione_Materiale,Macchina_Assegnata_Default,Data_Scadenza_Cliente,Priorita_Commerciale
 ODP-001,ART-013,L-2026-5033,1,MAT-AISI316-40,TONDO AISI316 Ø40,TORNO-05,2026-07-04,ALTA
 ODP-002,ART-020,L-2026-7868,50,MAT-Alluminio-80,TONDO Alluminio Ø80,TORNO-05,2026-07-07,BASSA
 ODP-003,ART-017,L-2026-5272,5,MAT-Bronzo-60,TONDO Bronzo Ø60,TORNO-06,2026-06-22,BASSA
