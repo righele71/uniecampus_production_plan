@@ -1,3 +1,0 @@
-Codice_Articolo,Codice_Materiale,Descrizione_Materiale,Ciclo_Fasi,Tempo_Setup_Standard_Min,Tempo_Tornitura_Cad_Min,Tempo_Taglio_Cad_Min,Tempo_Fresa_Cad_Min
-ART-001,MAT-Bronzo-20,TONDO Bronzo Ø20,TORNIO,90,11,0,0
-ART-002,MAT-C45-30,TONDO C45 Ø30,"TAGLIO,TORNIO",90,6,1,0
