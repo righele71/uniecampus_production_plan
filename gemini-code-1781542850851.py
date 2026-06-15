@@ -45,14 +45,14 @@ if df_ordini is not None:
     
     if st.button("🚀 ELABORA PIANO DI PRODUZIONE OTTIMIZZATO", type="primary"):
         
-        with st.spinner("L'algoritmo sta analizzando i vincoli e ottimizzando la sequenza..."):
+with st.spinner("L'algoritmo sta analizzando i vincoli e ottimizzando la sequenza..."):
             
             # --------------------------------------------------------------------------
-            # REGOLA 1: VERIFICA MATERIALE (Filtro AI)
+            # REGOLA 1: VERIFICA MATERIALE (Filtro AI) - CORRETTO
             # --------------------------------------------------------------------------
-            # Uniamo gli ordini con lo stato del magazzino per controllare la disponibilità
+            # Usiamo left_on e right_on perché i due file usano nomi di colonna differenti
             df_merged = pd.merge(df_ordini, df_magazzino[['Codice_Materiale', 'Stato_Disponibilita', 'Data_Previsione_AI_Ritardo']], 
-                                 on='Codice_Materiale', how='left')
+                                 left_on='Materiale_Richiesto', right_on='Codice_Materiale', how='left')
             
             # Identifichiamo gli ordini bloccati (materiale ESAURITO o IN_RITARDO secondo l'AI)
             ordini_bloccati = df_merged[df_merged['Stato_Disponibilita'].isin(['ESAURITO', 'IN_RITARDO'])].copy()
@@ -68,10 +68,9 @@ if df_ordini is not None:
                 ascending=[True, True, False]
             ).reset_index(drop=True)
             
+# --------------------------------------------------------------------------
+            # REGOLA 3: ASSEGNAZIONE OPERATORE PIÙ VELOCE - OTTIMIZZATO
             # --------------------------------------------------------------------------
-            # REGOLA 3: ASSEGNAZIONE OPERATORE PIÙ VELOCE
-            # --------------------------------------------------------------------------
-            # Arricchiamo con i tempi teorici della distinta base (Ciclo)
             ordini_ottimizzati = pd.merge(ordini_ottimizzati, 
                                           df_anagrafica[['Codice_Articolo', 'Tempo_Setup_Standard_Min', 'Tempo_Tornitura_Cad_Min', 'Ciclo_Fasi']], 
                                           on='Codice_Articolo', how='left')
@@ -82,9 +81,13 @@ if df_ordini is not None:
             for idx, row in ordini_ottimizzati.iterrows():
                 macchina = row['Macchina_Assegnata_Default']
                 
-                # Cerchiamo gli operatori storicamente associati a questa specifica macchina
-                # Estraggo la categoria di centro (es. TORNIO) dalla stringa della macchina
-                categoria_centro = 'TORNIO' if 'TORNO' in macchina else ('TAGLIO' if 'TAGLIO' in macchina else 'FRESA')
+                # Controllo robusto della categoria centro
+                if 'TORNO' in str(macchina):
+                    categoria_centro = 'TORNIO'
+                elif 'TAGLIO' in str(macchina):
+                    categoria_centro = 'TAGLIO'
+                else:
+                    categoria_centro = 'FRESA'
                 
                 filtro_op = df_operatori[
                     (df_operatori['Macchina_Specifica'] == macchina) & 
@@ -92,7 +95,6 @@ if df_ordini is not None:
                 ]
                 
                 if not filtro_op.empty:
-                    # Trova l'operatore con l'efficienza più alta (Fattore_Efficienza_Storico più grande)
                     miglior_op = filtro_op.sort_values(by='Fattore_Efficienza_Storico', ascending=False).iloc[0]
                     nome_op = miglior_op['Nome_Operatore']
                     efficienza = miglior_op['Fattore_Efficienza_Storico']
@@ -100,8 +102,6 @@ if df_ordini is not None:
                     nome_op = "Operatore Standard"
                     efficienza = 1.0
                 
-                # Calcolo del tempo effettivo stimato:
-                # Tempo = Tempo Setup + (Tempo Unitario * Qta / Efficienza Operatore)
                 tempo_teorico_lavoro = row['Tempo_Tornitura_Cad_Min'] * row['Quantita_Da_Produrre']
                 tempo_effettivo_lavoro = tempo_teorico_lavoro / efficienza
                 tempo_totale_stimato = row['Tempo_Setup_Standard_Min'] + tempo_effettivo_lavoro
