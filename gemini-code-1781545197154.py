@@ -165,11 +165,24 @@ if df_ordini is not None:
         st.markdown("### 📋 Sequenza di Produzione Ottimizzata (Piano del Giorno)")
         st.markdown("_Nota: Le celle nella colonna **Data Fine Prevista** sono evidenziate in **rosso** se il lavoro termina dopo la Scadenza Cliente._")
         
+        # Colonne che vogliamo effettivamente mostrare a video
         vista_colonne = [
             'ID_Ordine', 'Codice_Articolo', 'Lotto', 'Quantita_Da_Produrre', 
             'Descrizione_Materiale', 'Macchina_Assegnata_Default', 'Operatore_Suggerito_AI', 
             'Tempo_Totale_Min', 'Data_Scadenza_Cliente', 'Data_Fine_Prevista'
         ]
+        
+        # 1. Creiamo un DataFrame pulito con le colonne visibili + la colonna logica 'In_Ritardo'
+        df_da_visualizzare = ordini_ottimizzati[vista_colonne + ['In_Ritardo']].copy()
+        
+        # 2. Applichiamo lo stile condizionale riga per riga
+        df_styled = df_da_visualizzare.style.apply(evidenzia_ritardi, axis=1)
+        
+        # 3. Nascondiamo la colonna 'In_Ritardo' direttamente dallo Styler (senza usare .drop)
+        df_styled = df_styled.hide(['In_Ritardo'], axis=1)
+        
+        # 4. Passiamo l'oggetto formattato a Streamlit
+        st.dataframe(df_styled, use_container_width=True)
         
         # Applichiamo lo stile condizionale alla tabella
         df_styled = ordini_ottimizzati[vista_colonne + ['In_Ritardo']].style.apply(evidenzia_ritardi, axis=1).drop(columns=['In_Ritardo'])
