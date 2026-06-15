@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
 
 # Configurazione della pagina Streamlit
@@ -47,7 +46,7 @@ if df_ordini is not None:
         with st.spinner("L'algoritmo sta analizzando i vincoli e calcolando i tempi di consegna..."):
             
             # --------------------------------------------------------------------------
-            # REGOLA 1: FILTRO MATERIALI (Uso della colonna dinamica rilevata)
+            # REGOLA 1: FILTRO MATERIALI
             # --------------------------------------------------------------------------
             df_merged = pd.merge(
                 df_ordini, 
@@ -82,11 +81,10 @@ if df_ordini is not None:
             tempi_totali_min = []
             date_fine_previste = []
             
-            # Per simulare le date di conclusione, ipotizziamo che la produzione parta da oggi
+            # Simuliamo che la produzione parta da oggi
             data_corrente_simulazione = datetime.now()
             
-            # Monitoriamo il carico cumulativo sulle macchine per simulare una coda reale
-            # Ogni macchina ha un suo contatore di minuti impegnati
+            # Tracciamento del carico cumulativo per ogni singola macchina (coda sequenziale)
             carico_macchine_minuti = {}
             
             for idx, row in ordini_ottimizzati.iterrows():
@@ -94,10 +92,9 @@ if df_ordini is not None:
                 if macchina not in carico_macchine_minuti:
                     carico_macchine_minuti[macchina] = 0
                 
-                # Capiamo l'area della macchina
                 categoria_centro = 'TORNIO' if 'TORNO' in str(macchina) else ('TAGLIO' if 'TAGLIO' in str(macchina) else 'FRESA')
                 
-                # Cerchiamo il miglior operatore per questa macchina
+                # Ricerca del miglior operatore disponibile per la macchina
                 filtro_op = df_operatori[
                     (df_operatori['Macchina_Specifica'] == macchina) & 
                     (df_operatori['Centro_Di_Lavoro'] == categoria_centro)
@@ -118,7 +115,7 @@ if df_ordini is not None:
                 # Avanzamento della coda sulla macchina specifica
                 carico_macchine_minuti[macchina] += tempo_totale_lavoro
                 
-                # Calcoliamo quanti giorni lavorativi (considerando turni da 8 ore) comporta questa coda
+                # Conversione in giorni lavorativi (assumendo turni da 8 ore al giorno)
                 giorni_da_aggiungere = carico_macchine_minuti[macchina] / (8 * 60)
                 data_conclusione = data_corrente_simulazione + timedelta(days=giorni_da_aggiungere)
                 
@@ -130,7 +127,7 @@ if df_ordini is not None:
             ordini_ottimizzati['Tempo_Totale_Min'] = tempi_totali_min
             ordini_ottimizzati['Data_Fine_Prevista'] = date_fine_previste
             
-            # Verifichiamo se siamo in ritardo rispetto alla richiesta del cliente
+            # Verifica ritardo rispetto alla scadenza contrattuale del cliente
             ordini_ottimizzati['In_Ritardo'] = ordini_ottimizzati.apply(
                 lambda r: r['Data_Fine_Prevista'] > r['Data_Scadenza_Cliente'], axis=1
             )
@@ -149,46 +146,37 @@ if df_ordini is not None:
         with kpi3:
             ritardi_totali = ordini_ottimizzati['In_Ritardo'].sum()
             st.metric(label="⚠️ Ordini in Ritardo su Scadenza", value=f"{ritardi_totali}", 
-                      delta=f"{ritardi_totali} criticità scadenze" if ritardi_totali > 0 else "Tutto nei tempi",
+                      delta=f"{ritardi_totali} criticità" if ritardi_totali > 0 else "Tutto nei tempi",
                       delta_color="inverse" if ritardi_totali > 0 else "normal")
 
-        # Funzione di formattazione per evidenziare in rosso le date di fine previste in ritardo
+        # Funzione interna per applicare il colore rosso alle celle in ritardo
         def evidenzia_ritardi(row):
             styles = [''] * len(row)
             if row['In_Ritardo']:
-                # Trova l'indice della colonna Data_Fine_Prevista per applicare lo stile rosso
                 idx_data = row.index.get_loc('Data_Fine_Prevista')
                 styles[idx_data] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'
             return styles
 
         # Tabelle Risultati
-        st.markdown("### 📋 Sequenza di Produzione Ottimizzata (Piano del Giorno)")
+        st.markdown("### 📋 Sequenza di Productione Ottimizzata (Piano del Giorno)")
         st.markdown("_Nota: Le celle nella colonna **Data Fine Prevista** sono evidenziate in **rosso** se il lavoro termina dopo la Scadenza Cliente._")
         
-        # Colonne che vogliamo effettivamente mostrare a video
         vista_colonne = [
             'ID_Ordine', 'Codice_Articolo', 'Lotto', 'Quantita_Da_Produrre', 
             'Descrizione_Materiale', 'Macchina_Assegnata_Default', 'Operatore_Suggerito_AI', 
             'Tempo_Totale_Min', 'Data_Scadenza_Cliente', 'Data_Fine_Prevista'
         ]
         
-        # 1. Creiamo un DataFrame pulito con le colonne visibili + la colonna logica 'In_Ritardo'
+        # Creiamo una copia del dataframe circoscritta alle colonne di interesse + colonna logica
         df_da_visualizzare = ordini_ottimizzati[vista_colonne + ['In_Ritardo']].copy()
         
-        # 2. Applichiamo lo stile condizionale riga per riga
-        df_styled = df_da_visualizzare.style.apply(evidenzia_ritardi, axis=1)
-        
-        # 3. Nascondiamo la colonna 'In_Ritardo' direttamente dallo Styler (senza usare .drop)
-        df_styled = df_styled.hide(['In_Ritardo'], axis=1)
-        
-        # 4. Passiamo l'oggetto formattato a Streamlit
-        st.dataframe(df_styled, use_container_width=True)
-        
-        # Applichiamo lo stile condizionale alla tabella
-        df_styled = ordini_ottimizzati[vista_colonne + ['In_Ritardo']].style.apply(evidenzia_ritardi, axis=1).drop(columns=['In_Ritardo'])
+        # Applichiamo lo stile condizionale e nascondiamo la colonna logica usando i metodi nativi di Styler
+        df_styled = (df_da_visualizzare.style
+                     .apply(evidenzia_ritardi, axis=1)
+                     .hide(['In_Ritardo'], axis=1))
         
         st.dataframe(df_styled, use_container_width=True)
 
         if len(ordini_bloccati) > 0:
-            st.markdown("### 🛑 Ordini Sospesi (Materiale non disponibile in fabbrica)")
+            st.markdown("### 🛑 Ordini Sospesi (In attesa di Materiale)")
             st.dataframe(ordini_bloccati[['ID_Ordine', 'Codice_Articolo', 'Quantita_Da_Produrre', 'Descrizione_Materiale', 'Stato_Disponibilita', 'Data_Previsione_AI_Ritardo']], use_container_width=True)
