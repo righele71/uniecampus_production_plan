@@ -76,13 +76,14 @@ if file_ordini and file_magazzino and file_cicli and file_operatori:
         # Sceglie l'operatore con Fattore_Efficienza_Storico più alto
         best_ops = df_operatori[df_operatori['Centro_Di_Lavoro'] == 'TORNIO'].sort_values('Fattore_Efficienza_Storico', ascending=False)
         
-        def assegna_operatore_efficienza(macchina):
+def assegna_operatore_efficienza(macchina):
             op_match = best_ops[best_ops['Macchina_Specifica'] == macchina]
             if not op_match.empty:
                 return op_match.iloc[0]['Nome_Operatore'], op_match.iloc[0]['Fattore_Efficienza_Storico']
             return "Operatore Standard", 1.0
 
-         elenchi_macchine = {}
+        # RIGHE COINVOLTE (Ora perfettamente allineate con il "def" sopra):
+        elenchi_macchine = {}
         
         # Lista di tutte le macchine uniche presenti
         macchine = df_master['Macchina_Assegnata_Default'].dropna().unique()
