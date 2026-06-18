@@ -1,0 +1,42 @@
+{
+  "software_name": "AI Production Planner MVP",
+  "architecture": "Streamlit Cloud + GitHub",
+  "primary_key_relation": "codice_articolo",
+  "workcenters": {
+    "taglio": [
+      "Taglio_01",
+      "Taglio_02"
+    ],
+    "tornitura": [
+      "Tornio_01",
+      "Tornio_02",
+      "Tornio_03",
+      "Tornio_04",
+      "Tornio_05"
+    ],
+    "fresatura": [
+      "Fresa_01",
+      "Fresa_02"
+    ]
+  },
+  "sorting_algorithm_rules": [
+    {
+      "step": 1,
+      "criteria": "materiale_esistente > 0",
+      "priority": "High",
+      "description": "Lavora prima ciò che ha stock pronto"
+    },
+    {
+      "step": 2,
+      "criteria": "data_consegna_materiale_ordinato ASC",
+      "priority": "Medium",
+      "description": "Incrocia i ritardi dei fornitori e metti in coda in base all'arrivo stimato"
+    },
+    {
+      "step": 3,
+      "criteria": "codice_materiale GROUP BY",
+      "priority": "Low",
+      "description": "Raggruppa i tondi per tornitura uguali per minimizzare i cambi attrezzaggio sullo stesso tornio"
+    }
+  ]
+}
